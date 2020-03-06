@@ -27,19 +27,11 @@ struct Matrix {
  */
 
 struct ELL_Matrix {
-    ELL_Matrix(int nrows, int ncols, int ncols_per_row);
-
     int nrows;
     int ncols;
     int ncols_per_row;
     int* col_indices;
     float* data;
-
-    ELL_Matrix(const float* values, int nrows, int ncols, int ncols_per_row);
-
-    ELL_Matrix();
-
-    ~ELL_Matrix();
 };
 
 __global__ void matrix_mult(Matrix A, Matrix B, Matrix C);

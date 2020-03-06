@@ -4,41 +4,45 @@
 
 const float COEFFICIENT = 1389.38757;
 
-ELL_Matrix::ELL_Matrix(const float* values, int nrows, int ncols, int ncols_per_row): nrows(nrows),
-                                                                                      ncols(ncols),
-                                                                                      ncols_per_row(ncols_per_row) {
-    size_t sizefloat = nrows * ncols_per_row * sizeof(float);
-    size_t sizeint = nrows * ncols_per_row * sizeof(int);
+int get_max_cols(Matrix A) {
+    int globalsum = 0;
+    int n = A.height;
 
-    cudaMallocHost((void**)&data, sizefloat);
-    cudaMallocHost((void**)&col_indices, sizeint);
-    cudaDeviceSynchronize();
-    std::cout << cudaGetErrorString(cudaGetLastError()) << std::endl;
+    for (size_t i = 0; i < n; i++) {
+        int localsum = 0;
+        for (size_t j = 0; j < n; j++) {
+            if (A.elements[i * n + j] > 0) {
+                localsum++;
+            }
+        }
+        if (localsum > globalsum) {
+            globalsum = localsum;
+        }
+    }
+    return globalsum;
+}
+
+void fill_ell_matrix(ELL_Matrix ell, Matrix A, int nrows, int ncols, int ncols_per_row) {
+
+
 
     for (size_t i = 0; i < nrows; i++) {
         int colidx = 0;
         for (size_t j = 0; j < ncols; j++) {
-            if (values[i * nrows + j] != 0) {
-                data[colidx * nrows + i] = values[i * nrows + j];
-                col_indices[colidx * nrows + i] = j;
+            if (A.elements[i * nrows + j] != 0) {
+                ell.data[colidx * nrows + i] = A.elements[i * nrows + j];
+                ell.col_indices[colidx * nrows + i] = j;
                 colidx++;
             }
         }
     }
 }
 
-ELL_Matrix::ELL_Matrix(int nrows, int ncols, int ncols_per_row): nrows(nrows),
-                                                                  ncols(ncols),
-                                                                  ncols_per_row(ncols_per_row) {
+void ell_mallocHost(){
 
 }
 
-ELL_Matrix::~ELL_Matrix() {
-    cudaFreeHost(data);
-    cudaFreeHost(col_indices);
-}
-
-ELL_Matrix::ELL_Matrix() {
+void ell_freeHost() {
 
 }
 
@@ -55,8 +59,8 @@ __device__ float atom_dist (atom a1, atom a2) {
 }
 
 void calculate(float* bonds, size_t n, atom* atom_coords, float* charges) {
-
-
+    //TODO hard-coded value! fix it
+    size_t ncols_per_row = 4;
 
     Matrix A;
     A.elements = bonds;
@@ -65,12 +69,37 @@ void calculate(float* bonds, size_t n, atom* atom_coords, float* charges) {
 
     size_t size = A.width * A.height * sizeof(float);
 
-    /*Matrix Asquared;
+    ELL_Matrix ell_A;
+
+    size_t sizefloat = n * ncols_per_row * sizeof(float);
+    size_t sizeint = n * ncols_per_row * sizeof(int);
+
+    cudaMallocHost((void**)&ell_A.data, sizefloat);
+    cudaMallocHost((void**)&ell_A.col_indices, sizeint);
+
+    ell_A.ncols = n;
+    ell_A.nrows = n;
+    ell_A.ncols_per_row = ncols_per_row;
+
+    fill_ell_matrix(ell_A, A, n, n, 4);
+
+    ELL_Matrix d_ell_A;
+    d_ell_A.ncols_per_row = ell_A.ncols_per_row;
+    d_ell_A.ncols = ell_A.ncols;
+    d_ell_A.nrows = ell_A.nrows;
+
+    cudaMalloc((void**)&d_ell_A.data, sizefloat);
+    cudaMalloc((void**)&d_ell_A.col_indices, sizeint);
+
+    cudaMemcpy(d_ell_A.data, ell_A.data, sizefloat, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_ell_A.col_indices, ell_A.col_indices, sizeint, cudaMemcpyHostToDevice);
+
+    Matrix Asquared;
     Asquared.width = n;
     Asquared.height = n;
     cudaMallocHost((void**)&Asquared.elements, size);
 
-    Matrix Acubed;
+    /*Matrix Acubed;
     cudaMallocHost((void**)&Acubed.elements, size);
     Acubed.height = n;
     Acubed.width = n;*/
@@ -101,12 +130,47 @@ void calculate(float* bonds, size_t n, atom* atom_coords, float* charges) {
     dim3 dimBlock1(BLOCK_SIZE);
 
     dim3 dimGrid1(n / dimBlock1.x + 1);
-    std::cout << "Launching kernel for multiply" << std::endl;
+    //std::cout << "Launching kernel for multiply" << std::endl;
 
-    matrix_mult<<<dimGrid, dimBlock>>>(d_A, d_B, d_Asquared);
+    //matrix_mult<<<dimGrid, dimBlock>>>(d_A, d_B, d_Asquared);
+    //cudaDeviceSynchronize();
+    //std::cout << cudaGetErrorString(cudaGetLastError()) << std::endl;
+
+
+    for (int i = 0; i < n; i++) {
+        ell_mult<<<dimGrid1, dimBlock1>>>(d_ell_A, d_A, d_Asquared, i);
+        //cudaDeviceSynchronize();
+        //std::cout << cudaGetErrorString(cudaGetLastError()) << std::endl;
+    }
     cudaDeviceSynchronize();
-    std::cout << cudaGetErrorString(cudaGetLastError()) << std::endl;
+    cudaMemcpy(Asquared.elements, d_Asquared.elements, size, cudaMemcpyDeviceToHost);
 
+    int ncols_per_row2 = get_max_cols(Asquared);
+
+    ELL_Matrix ell_Asq;
+
+    size_t sizefloat2 = n * ncols_per_row2 * sizeof(float);
+    size_t sizeint2 = n * ncols_per_row2 * sizeof(int);
+
+    cudaMallocHost((void**)&ell_Asq.data, sizefloat2);
+    cudaMallocHost((void**)&ell_Asq.col_indices, sizeint2);
+
+    ell_Asq.ncols = n;
+    ell_Asq.nrows = n;
+    ell_Asq.ncols_per_row = ncols_per_row2;
+
+    fill_ell_matrix(ell_Asq, Asquared, n, n, ncols_per_row2);
+
+    ELL_Matrix d_ell_Asq;
+    d_ell_Asq.ncols_per_row = ell_Asq.ncols_per_row;
+    d_ell_Asq.ncols = ell_Asq.ncols;
+    d_ell_Asq.nrows = ell_Asq.nrows;
+
+    cudaMalloc((void**)&d_ell_Asq.data, sizefloat2);
+    cudaMalloc((void**)&d_ell_Asq.col_indices, sizeint2);
+
+    cudaMemcpy(d_ell_Asq.data, ell_Asq.data, sizefloat2, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_ell_Asq.col_indices, ell_Asq.col_indices, sizeint2, cudaMemcpyHostToDevice);
 
     Matrix d_Acubed;
     d_Acubed.width = A.width;
@@ -117,9 +181,13 @@ void calculate(float* bonds, size_t n, atom* atom_coords, float* charges) {
     cudaMalloc((void**)&d_atoms, n * sizeof(atom));
     cudaMemcpy(d_atoms, atom_coords, n * sizeof(atom), cudaMemcpyHostToDevice);
 
-    //cudaMemcpy(Asquared.elements, d_Asquared.elements, size, cudaMemcpyDeviceToHost);
+    for (int i = 0; i < n; i++) {
+        ell_mult<<<dimGrid1, dimBlock1>>>(d_ell_Asq, d_A, d_Acubed, i);
+        //cudaDeviceSynchronize();
+        //std::cout << cudaGetErrorString(cudaGetLastError()) << std::endl;
+    }
 
-    matrix_mult<<<dimGrid, dimBlock>>>(d_A, d_Asquared, d_Acubed);
+    //matrix_mult<<<dimGrid, dimBlock>>>(d_A, d_Asquared, d_Acubed);
     cudaDeviceSynchronize();
     std::cout << cudaGetErrorString(cudaGetLastError()) << std::endl;
 
@@ -250,14 +318,14 @@ __global__ void ell_mult(ELL_Matrix A, Matrix B, Matrix C, int i){
     if (row < A.nrows) {
         float dot = 0;
 
-        for (int n = 0; n < A.ncols_per_row; n++) {
-            int col = A.col_indices[A.nrows * n + row];
-            float val = A.data[A.nrows * n + row];
+        for (int idx = 0; idx < A.ncols_per_row; idx++) {
+            int col = A.col_indices[A.nrows * idx + row];
+            float val = A.data[A.nrows * idx + row];
 
             if (val != 0) {
-                dot += val * B.elements[i *n + col];
+                dot += val * B.elements[i * B.height + col];
             }
-            C.elements[i * n + row] += dot;
+            C.elements[i * C.height + row] = dot;
         }
     }
 }

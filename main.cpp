@@ -7,7 +7,7 @@
 
 
 int main() {
-    std::ifstream charges_file("../data/charges.txt");
+    std::ifstream charges_file("./data/charges.txt");
 
     float x;
 
@@ -17,7 +17,7 @@ int main() {
         charges.push_back(x);
     }
 
-    std::ifstream bonds_file("../data/bonds.txt");
+    std::ifstream bonds_file("./data/bonds.txt");
 
     size_t n = charges.size();
 
@@ -36,11 +36,18 @@ int main() {
         }
     }
 
-    std::ofstream out("matrix.csv");
+    //std::ofstream out("matrix.csv");
+
+    /*for (size_t i = 0; i < n; i++) {
+        for (size_t j = 0; j < n; j++) {
+            out << bonds[i * n + j] << ',';
+        }
+        out << std::endl;
+    }*/
 
     int globalsum = 0;
 
-    for (size_t i = 0; i < n; i++) {
+    /*for (size_t i = 0; i < n; i++) {
         int localsum = 0;
         for (size_t j = 0; j < n; j++) {
             if (bonds[i * n + j] > 0) {
@@ -50,10 +57,10 @@ int main() {
         if (localsum > globalsum) {
             globalsum = localsum;
         }
-    }
+    }*/
 
 
-    std::cout << globalsum << std::endl;
+    //std::cout << globalsum << std::endl;
 
 
 
@@ -67,7 +74,7 @@ int main() {
     }*/
 
     //reading atomic coordinates
-    std::ifstream atoms_file("../data/atoms.txt");
+    std::ifstream atoms_file("./data/atoms.txt");
 
     for (size_t i = 0; i < n; i++) {
         float a, b, c;
